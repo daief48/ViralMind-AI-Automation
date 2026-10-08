@@ -1,0 +1,844 @@
+// ─── VIRALMIND database schema ───────────────────────────────────────────────
+// PostgreSQL + Prisma. Phase 1 (Foundation).
+// Models follow docs/SPEC.md §27. All timestamps are UTC.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum AutomationMode {
+  FULL_AUTO
+  SEMI_AUTO
+  MANUAL
+}
+
+enum ApprovalMode {
+  AUTO
+  APPROVAL_REQUIRED
+}
+
+enum GrowthGoal {
+  FOLLOWERS
+  ENGAGEMENT
+  REACH
+  BRAND_AWARENESS
+  LEADS
+  TRAFFIC
+}
+
+enum AgentStatus {
+  ACTIVE
+  PAUSED
+  EMERGENCY_STOPPED
+}
+
+enum PageSource {
+  FACEBOOK_OAUTH
+  MANUAL
+}
+
+enum TokenStatus {
+  ACTIVE
+  EXPIRED
+  INVALID
+  REVOKED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TrendStatus {
+  NEW
+  SCORED
+  SELECTED
+  REJECTED
+  EXPIRED
+}
+
+enum TrendCategory {
+  NEWS
+  FINANCE
+  CRYPTO
+  ECONOMY
+  REGIONAL
+  MARKET
+  SEARCH
+  EMERGING
+  OTHER
+}
+
+enum ResearchKind {
+  NEWS
+  WEB
+  MARKET
+  SEARCH
+  REGIONAL
+}
+
+enum AssetKind {
+  CRYPTO
+  FOREX
+  STOCK
+  COMMODITY
+  INDEX
+  OTHER
+}
+
+enum ContentFormat {
+  BREAKING_NEWS
+  MARKET_ANALYSIS
+  EDUCATIONAL
+  ENGAGEMENT
+  POLL
+  QUESTION
+  TRADING_TIP
+  MARKET_UPDATE
+  EXPLAINER
+  MEME
+  COMMUNITY
+}
+
+enum ContentStatus {
+  IDEA
+  GENERATING
+  READY
+  QUALITY_CHECK
+  APPROVED
+  REJECTED
+  NEEDS_REVIEW
+  DISCARDED
+}
+
+enum PublishStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum QualityDecision {
+  APPROVE
+  REJECT
+  NEEDS_REVIEW
+}
+
+enum CommentType {
+  QUESTION
+  POSITIVE
+  NEGATIVE
+  SPAM
+  TROLL
+  COMPLAINT
+  FINANCIAL_QUESTION
+  LEAD
+  OTHER
+}
+
+enum CommentStatus {
+  NEW
+  CLASSIFIED
+  REPLY_DRAFTED
+  APPROVAL_PENDING
+  REPLY_POSTED
+  IGNORED
+  FAILED
+}
+
+enum ReplyStatus {
+  DRAFT
+  APPROVED
+  POSTED
+  FAILED
+}
+
+enum CalendarStatus {
+  PLANNED
+  FILLED
+  PUBLISHED
+  SKIPPED
+}
+
+enum StrategyStatus {
+  ACTIVE
+  RETIRED
+}
+
+enum DecisionType {
+  CREATE_POST
+  SCHEDULE_POST
+  ADJUST_STRATEGY
+  REPLY_COMMENT
+  ESCALATE_TO_ADMIN
+  REJECT_TREND
+}
+
+enum DecisionStatus {
+  PENDING
+  ACCEPTED
+  OVERRIDDEN
+  EXPIRED
+  FAILED
+}
+
+enum FeedbackSource {
+  ADMIN
+  AUTOMATED
+  PERFORMANCE
+}
+
+enum JobStatus {
+  QUEUED
+  ACTIVE
+  COMPLETED
+  FAILED
+  DEAD
+}
+
+enum ActivityKind {
+  RESEARCH
+  TREND_SCORED
+  OPPORTUNITY_SELECTED
+  CONTENT_GENERATED
+  IMAGE_GENERATED
+  QUALITY_CHECK
+  SCHEDULED
+  PUBLISHED
+  COMMENT_RECEIVED
+  COMMENT_REPLIED
+  ANALYTICS
+  LEARNING
+  ERROR
+}
+
+// ─── Auth & users ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(ADMIN)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  pages       FacebookPage[]
+  feedbacks   AIFeedback[]
+  auditLogs   AuditLog[]
+
+  @@index([email])
+}
+
+// ─── Facebook connection ──────────────────────────────────────────────────────
+
+model FacebookPage {
+  id                  String         @id @default(cuid())
+  userId              String
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalPageId      String?        @unique // Meta Page ID — null until OAuth connect (Phase 2)
+  name                String
+  username            String? // @handle, when available
+  avatarUrl           String?
+  category            String?
+  fanCount            Int?
+  niche               String?
+  regions             String[]       @default([])
+  languages           String[]       @default([])
+  growthGoal          GrowthGoal?
+  targetFollowers     Int?
+  currentFollowers    Int?
+  automationMode      AutomationMode @default(SEMI_AUTO)
+  agentStatus         AgentStatus    @default(ACTIVE)
+  isDemo              Boolean        @default(false) // MANUAL pages created without OAuth for pipeline testing
+  onboardingCompleted Boolean        @default(false)
+  source              PageSource     @default(FACEBOOK_OAUTH)
+  timezone            String         @default("UTC")
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  tokens            FacebookToken[]
+  settings          AISetting?
+  rules             AutomationRule[]
+  trends            Trend[]
+  posts             Post[]
+  ideas             ContentIdea[]
+  comments          Comment[]
+  pageAnalytics     Analytics[]
+  audienceAnalytics AudienceAnalytics[]
+  calendarSlots     ContentCalendar[]
+  strategies        GrowthStrategy[]
+  decisions         AIDecision[]
+  competitors       Competitor[]
+  researchSources   ResearchSource[]
+  jobs              AIJob[]
+  activities        PageActivity[]
+  auditLogs         AuditLog[]
+  marketAssets      MarketAsset[]
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model FacebookToken {
+  id                  String      @id @default(cuid())
+  pageId              String
+  page                FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  encryptedToken      String // AES-256-GCM — never leave the server unencrypted
+  status              TokenStatus @default(ACTIVE)
+  scopes              String[]    @default([])
+  expiresAt           DateTime?
+  lastRefreshedAt     DateTime?
+  lastValidatedAt     DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@index([pageId])
+  @@index([status])
+}
+
+// ─── Reference data (seeded) ──────────────────────────────────────────────────
+
+model Region {
+  id               String   @id @default(cuid())
+  code             String   @unique // BD, IN, PK, US, GB, CA, AU, GLOBAL
+  name             String
+  timezone         String
+  defaultLanguages String[] @default([])
+  currency         String
+  isActive         Boolean  @default(true)
+}
+
+model Language {
+  id       String  @id @default(cuid())
+  code     String  @unique // bn, en, hi, ur
+  name     String
+  isActive Boolean @default(true)
+}
+
+model Niche {
+  id        String  @id @default(cuid())
+  slug      String  @unique // trading, crypto, finance, ...
+  name      String
+  keywords  String[] @default([])
+  isActive  Boolean @default(true)
+}
+
+// ─── AI settings & automation ─────────────────────────────────────────────────
+
+model AISetting {
+  id                          String         @id @default(cuid())
+  pageId                      String         @unique
+  page                        FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  postsPerDay                 Int            @default(3)
+  postsApproval               ApprovalMode   @default(APPROVAL_REQUIRED)
+  commentsApproval            ApprovalMode   @default(AUTO)
+  financialApproval           ApprovalMode   @default(APPROVAL_REQUIRED)
+  imagesApproval              ApprovalMode   @default(AUTO)
+  publishingApproval          ApprovalMode   @default(AUTO)
+  autoReplyComments           Boolean        @default(true)
+  minCommentConfidence        Int            @default(80) // 0-100
+  financialQuestionsNeedOK    Boolean        @default(true)
+  negativeCommentAction       ApprovalMode   @default(APPROVAL_REQUIRED)
+  complaintPriorityAlert      Boolean        @default(true)
+  leadNotifyAdmin             Boolean        @default(true)
+  imageGenerationEnabled      Boolean        @default(true)
+  brandTone                   String? // e.g. "confident, helpful, never hypey"
+  visualStyle                 String? // e.g. "premium financial, clean, dark"
+  scoringWeights              Json? // { searchTrend, newsMomentum, marketMovement, regionalRelevance, historical, competition } — must sum to 100
+  activeStrategyVersion       Int            @default(1)
+  pausedUntil                 DateTime?
+  createdAt                   DateTime       @default(now())
+  updatedAt                   DateTime       @updatedAt
+}
+
+model AutomationRule {
+  id        String       @id @default(cuid())
+  pageId    String
+  page      FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  name      String
+  isActive  Boolean      @default(true)
+  priority  Int          @default(0)
+  conditions Json
+  action    Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([pageId, isActive])
+}
+
+// ─── Research, trends & scoring ───────────────────────────────────────────────
+
+model Trend {
+  id           String        @id @default(cuid())
+  pageId       String
+  page         FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  title        String
+  summary      String?
+  category     TrendCategory @default(OTHER)
+  region       String? // Region.code
+  niche        String?
+  status       TrendStatus   @default(NEW)
+  freshness    Int? // 0-100
+  confidence   Int? // 0-100
+  discoveredAt DateTime      @default(now())
+  expiresAt    DateTime?
+
+  sources TrendSource[]
+  score   TrendScore?
+  ideas   ContentIdea[]
+  decisions AIDecision[]
+
+  @@index([pageId, status])
+  @@index([pageId, discoveredAt])
+  @@index([region, niche])
+}
+
+model TrendSource {
+  id          String   @id @default(cuid())
+  trendId     String
+  trend       Trend    @relation(fields: [trendId], references: [id], onDelete: Cascade)
+  sourceName  String
+  sourceUrl   String
+  publishedAt DateTime?
+  snippet     String?
+  createdAt   DateTime @default(now())
+
+  @@index([trendId])
+}
+
+model TrendScore {
+  id                    String   @id @default(cuid())
+  trendId               String   @unique
+  trend                 Trend    @relation(fields: [trendId], references: [id], onDelete: Cascade)
+  searchTrend           Int
+  newsMomentum          Int
+  marketMovement        Int
+  regionalRelevance     Int
+  audienceInterest      Int
+  historicalPerformance Int
+  competition           Int
+  contentPotential      Int
+  total                 Int // weighted composite 0-100
+  weights               Json // snapshot of the weights used
+  computedAt            DateTime @default(now())
+}
+
+model ResearchSource {
+  id          String       @id @default(cuid())
+  pageId      String
+  page        FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  kind        ResearchKind
+  title       String
+  url         String?
+  publisher   String?
+  query       String?
+  publishedAt DateTime?
+  fetchedAt   DateTime     @default(now())
+  meta        Json?
+
+  @@index([pageId, kind])
+  @@index([pageId, fetchedAt])
+}
+
+// ─── Market data ──────────────────────────────────────────────────────────────
+
+model MarketAsset {
+  id        String       @id @default(cuid())
+  pageId    String // watchlist is scoped to a page
+  page      FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  symbol    String // BTC, ETH, XAU, EUR/USD, AAPL…
+  name      String
+  kind      AssetKind
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  snapshots    MarketSnapshot[]
+  indicators   TechnicalIndicator[]
+
+  @@unique([pageId, symbol, kind])
+  @@index([pageId, isActive])
+}
+
+model MarketSnapshot {
+  id            String      @id @default(cuid())
+  assetId       String
+  asset         MarketAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  price         Decimal     @db.Decimal(18, 8)
+  changePercent Decimal?    @db.Decimal(8, 4)
+  volume        Decimal?    @db.Decimal(24, 4)
+  high          Decimal?    @db.Decimal(18, 8)
+  low           Decimal?    @db.Decimal(18, 8)
+  source        String
+  capturedAt    DateTime    @default(now())
+
+  @@index([assetId, capturedAt])
+}
+
+model TechnicalIndicator {
+  id         String      @id @default(cuid())
+  assetId    String
+  asset      MarketAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  name       String // RSI, MACD, EMA20, support, resistance…
+  timeframe  String // 1h, 4h, 1d
+  value      Decimal?    @db.Decimal(18, 8)
+  meta       Json?
+  computedAt DateTime    @default(now())
+
+  @@index([assetId, name, timeframe])
+}
+
+// ─── Content pipeline ─────────────────────────────────────────────────────────
+
+model ContentIdea {
+  id        String        @id @default(cuid())
+  pageId    String
+  page      FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  trendId   String?
+  trend     Trend?        @relation(fields: [trendId], references: [id], onDelete: SetNull)
+  topic     String
+  angle     String?
+  format    ContentFormat
+  rationale String?
+  score     Int?
+  status    ContentStatus @default(IDEA)
+  createdAt DateTime      @default(now())
+
+  posts Post[]
+
+  @@index([pageId, status])
+  @@index([trendId])
+}
+
+model Post {
+  id                 String         @id @default(cuid())
+  pageId             String
+  page               FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  ideaId             String?
+  idea               ContentIdea?   @relation(fields: [ideaId], references: [id], onDelete: SetNull)
+  format             ContentFormat
+  status             PublishStatus  @default(DRAFT)
+  hook               String?
+  content            String
+  cta                String?
+  hashtags           String[]       @default([])
+  sourceUrl          String?
+  disclaimer         String?
+  region             String?
+  language           String         @default("en")
+  riskLevel          RiskLevel      @default(LOW)
+  requiresApproval   Boolean        @default(false)
+  qualityDecision    QualityDecision?
+  qualityConfidence  Int?
+  qualityReasons     Json?
+  scheduledAt        DateTime?
+  publishedAt        DateTime?
+  externalPostId     String?        @unique // idempotency guard — one Meta post per record
+  publishError       String?
+  approvedById       String?
+  approvedAt         DateTime?
+  promptVersion      String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  variants  PostVariant[]
+  images    PostImage[]
+  comments  Comment[]
+  analytics PostAnalytics?
+  calendarSlots ContentCalendar[]
+
+  @@index([pageId, status])
+  @@index([pageId, scheduledAt])
+  @@index([ideaId])
+}
+
+model PostVariant {
+  id         String  @id @default(cuid())
+  postId     String
+  post       Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  label      String  @default("A")
+  hook       String?
+  content    String
+  isSelected Boolean @default(false)
+
+  @@index([postId])
+}
+
+model PostImage {
+  id         String  @id @default(cuid())
+  postId     String
+  post       Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  provider   String // image-provider name (abstraction, §13)
+  prompt     String
+  storageKey String? // storage abstraction key
+  url        String?
+  width      Int?
+  height     Int?
+  status     ContentStatus @default(GENERATING)
+  error      String?
+  createdAt  DateTime @default(now())
+
+  @@index([postId])
+}
+
+// ─── Engagement ───────────────────────────────────────────────────────────────
+
+model Comment {
+  id               String        @id @default(cuid())
+  pageId           String
+  page             FacebookPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  postId           String?
+  post             Post?         @relation(fields: [postId], references: [id], onDelete: SetNull)
+  externalCommentId String       @unique
+  authorExternalId String?
+  authorName       String
+  text             String
+  type             CommentType?
+  status           CommentStatus @default(NEW)
+  confidence       Int?
+  receivedAt       DateTime      @default(now())
+  processedAt      DateTime?
+
+  replies CommentReply[]
+
+  @@index([pageId, status])
+  @@index([postId, receivedAt])
+}
+
+model CommentReply {
+  id              String      @id @default(cuid())
+  commentId       String
+  comment         Comment     @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  text            String
+  status          ReplyStatus @default(DRAFT)
+  confidence      Int?
+  autoPosted      Boolean     @default(false)
+  externalReplyId String?     @unique
+  postedAt        DateTime?
+  error           String?
+  promptVersion   String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([commentId, status])
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+model Analytics {
+  id             String       @id @default(cuid())
+  pageId         String
+  page           FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  date           DateTime     @db.Date
+  followers      Int
+  followerChange Int?
+  reach          Int?
+  impressions    Int?
+  reactions      Int?
+  comments       Int?
+  shares         Int?
+  engagementRate Decimal?     @db.Decimal(6, 4)
+  source         String       @default("meta_graph")
+  capturedAt     DateTime     @default(now())
+
+  @@unique([pageId, date])
+  @@index([pageId, date])
+}
+
+model PostAnalytics {
+  id             String   @id @default(cuid())
+  postId         String   @unique
+  post           Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reach          Int?
+  impressions    Int?
+  reactions      Int?
+  comments       Int?
+  shares         Int?
+  engagementRate Decimal? @db.Decimal(6, 4)
+  clicks         Int?
+  capturedAt     DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model AudienceAnalytics {
+  id         String       @id @default(cuid())
+  pageId     String
+  page       FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  date       DateTime     @db.Date
+  byCountry  Json?
+  byGender   Json?
+  byAgeGroup Json?
+  byLanguage Json?
+  source     String       @default("meta_graph")
+  capturedAt DateTime     @default(now())
+
+  @@unique([pageId, date])
+}
+
+// ─── Planning, strategy & AI governance ───────────────────────────────────────
+
+model ContentCalendar {
+  id          String         @id @default(cuid())
+  pageId      String
+  page        FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  date        DateTime       @db.Date
+  slotTime    DateTime // full timestamp (date + posting time, page timezone)
+  format      ContentFormat
+  status      CalendarStatus @default(PLANNED)
+  postId      String?
+  post        Post?          @relation(fields: [postId], references: [id], onDelete: SetNull)
+  notes       String?
+  autoPlanned Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([pageId, slotTime])
+  @@index([pageId, status])
+}
+
+model GrowthStrategy {
+  id                String         @id @default(cuid())
+  pageId            String
+  page              FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  version           Int
+  status            StrategyStatus @default(ACTIVE)
+  contentMix        Json // { "BREAKING_NEWS": 30, ... } percentages
+  postingSchedule   Json? // per-day slot templates
+  bestTimes         Json?
+  reason            String
+  performanceBefore Json?
+  performanceAfter  Json?
+  activatedAt       DateTime       @default(now())
+  retiredAt         DateTime?
+
+  @@unique([pageId, version])
+  @@index([pageId, status])
+}
+
+model AIDecision {
+  id               String         @id @default(cuid())
+  pageId           String
+  page             FacebookPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  type             DecisionType
+  summary          String
+  reasoning        String
+  trendId          String?
+  trend            Trend?         @relation(fields: [trendId], references: [id], onDelete: SetNull)
+  input            Json?
+  output           Json
+  confidence       Int?
+  riskLevel        RiskLevel?
+  requiresApproval Boolean        @default(false)
+  status           DecisionStatus @default(PENDING)
+  decidedAt        DateTime       @default(now())
+  resolvedAt       DateTime?
+
+  feedbacks AIFeedback[]
+
+  @@index([pageId, type, status])
+  @@index([pageId, decidedAt])
+}
+
+model AIFeedback {
+  id        String         @id @default(cuid())
+  decisionId String
+  decision  AIDecision     @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  source    FeedbackSource
+  verdict   String // accepted / overridden / score
+  comment   String?
+  createdAt DateTime       @default(now())
+
+  @@index([decisionId])
+}
+
+model Competitor {
+  id               String       @id @default(cuid())
+  pageId           String // the page this competitor is tracked for
+  page             FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  competitorPageId String? // Meta Page ID when resolvable
+  name             String
+  url              String?
+  notes            String?
+  isActive         Boolean      @default(true)
+  lastAnalyzedAt   DateTime?
+  insights         Json? // strategic intelligence only — never copied content
+
+  @@index([pageId, isActive])
+}
+
+// ─── Ops: jobs, activity, audit ───────────────────────────────────────────────
+
+model AIJob {
+  id          String    @id @default(cuid())
+  pageId      String?
+  page        FacebookPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  queue       String
+  type        String // research-cycle, content-generation, image-generation, …
+  bullJobId   String? // BullMQ job id
+  status      JobStatus @default(QUEUED)
+  payload     Json?
+  result      Json?
+  error       String?
+  retries     Int       @default(0)
+  maxAttempts Int       @default(3)
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([pageId, status])
+  @@index([status, createdAt])
+  @@index([queue, status])
+}
+
+model PageActivity {
+  id        String       @id @default(cuid())
+  pageId    String
+  page      FacebookPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  kind      ActivityKind
+  message   String
+  meta      Json?
+  createdAt DateTime     @default(now())
+
+  @@index([pageId, createdAt])
+}
+
+model AuditLog {
+  id       String        @id @default(cuid())
+  userId   String?
+  user     User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  pageId   String?
+  page     FacebookPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  action   String // e.g. auth.login, settings.update, page.delete
+  entity   String?
+  entityId String?
+  metadata Json?
+  ip       String?
+  createdAt DateTime     @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}

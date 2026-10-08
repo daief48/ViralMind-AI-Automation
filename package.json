@@ -1,0 +1,21 @@
+{
+  "name": "viralmind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VIRALMIND — AI-Powered Autonomous Facebook Growth & Management Platform",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:api": "npm run dev --workspace @viralmind/api",
+    "dev:web": "npm run dev --workspace @viralmind/web",
+    "build": "npm run build --workspace @viralmind/api && npm run build --workspace @viralmind/web",
+    "typecheck": "npm run typecheck --workspace @viralmind/api && npm run typecheck --workspace @viralmind/web",
+    "db:migrate": "npm run db:migrate --workspace @viralmind/api",
+    "db:seed": "npm run db:seed --workspace @viralmind/api",
+    "db:studio": "npm run db:studio --workspace @viralmind/api"
+  }
+}

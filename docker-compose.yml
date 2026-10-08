@@ -1,0 +1,38 @@
+# Local development infrastructure for VIRALMIND.
+# Requires Docker Desktop: https://www.docker.com/products/docker-desktop/
+# Usage: docker compose up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: viralmind-postgres
+    environment:
+      POSTGRES_USER: viralmind
+      POSTGRES_PASSWORD: viralmind
+      POSTGRES_DB: viralmind
+    ports:
+      - "5432:5432"
+    volumes:
+      - viralmind_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viralmind"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: viralmind-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - viralmind_redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  viralmind_pgdata:
+  viralmind_redisdata:
